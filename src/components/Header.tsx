@@ -1,22 +1,53 @@
 "use client";
-import { useState, Fragment } from "react";
-import { RiSearchLine, RiNotification3Line, RiCheckLine } from "react-icons/ri";
+import { useState, useEffect, Fragment } from "react";
+import { useRouter } from "next/navigation";
+import { RiSearchLine, RiNotification3Line, RiLogoutBoxRLine } from "react-icons/ri";
+import { getStoredUser, clearStoredSession, UserSession } from "@/lib/auth";
 
 interface HeaderProps {
   activeTab?: string;
 }
 
-const tabs = [
+const adminTabs = [
   "SIÈGE CENTRAL",
   "EXERCICE HEBDOMADAIRE",
-  "Connexion",
-  "Réseau Inter",
-  "Église ≠ Église",
+  "Réseau Inter-Églises",
+  "Audit & Conformité",
 ];
 
-export default function Header({ activeTab = "SIÈGE CENTRAL" }: HeaderProps) {
+const percepteurTabs = [
+  "GUICHET SHOP",
+  "VERSEMENTS & COMMISSIONS",
+  "BORDEREAUX HEBDO",
+];
+
+export default function Header({ activeTab }: HeaderProps) {
+  const router = useRouter();
   const [currency, setCurrency] = useState<"USD" | "CDF">("USD");
-  const [active, setActive] = useState(activeTab);
+  const [user, setUser] = useState<UserSession | null>(null);
+
+  useEffect(() => {
+    setUser(getStoredUser());
+  }, []);
+
+  const isPercepteur = user?.role === "percepteur";
+  const tabs = isPercepteur ? percepteurTabs : adminTabs;
+  const currentTab = activeTab || tabs[0];
+  const [active, setActive] = useState(currentTab);
+
+  const handleLogout = () => {
+    clearStoredSession();
+    router.push("/login");
+  };
+
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((w) => w[0])
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+    : "TK";
 
   return (
     <header className="header">
@@ -64,22 +95,51 @@ export default function Header({ activeTab = "SIÈGE CENTRAL" }: HeaderProps) {
         {/* Sync */}
         <button className="sync-btn">
           <span className="sync-dot" />
-          Synchro Réseau OK
+          Synchro OK
         </button>
 
         {/* Notifications */}
         <button className="notif-btn" aria-label="Notifications">
           <RiNotification3Line size={16} />
-          <span className="notif-badge">4</span>
+          <span className="notif-badge">{isPercepteur ? "1" : "4"}</span>
         </button>
 
-        {/* User */}
-        <div className="user-info">
-          <div className="user-avatar">TK</div>
-          <div>
-            <div className="user-name">Trésorier Central K.</div>
-            <div className="user-role">Contrôleur Financier Siège</div>
+        {/* User Card & Logout */}
+        <div className="user-info" style={{ cursor: "pointer" }}>
+          <div
+            className="user-avatar"
+            style={{
+              background: isPercepteur ? "#3B82F6" : "#00C47D",
+              color: "#fff",
+            }}
+          >
+            {initials}
           </div>
+          <div>
+            <div className="user-name">
+              {user?.name || (isPercepteur ? "Percepteur Limete" : "Trésorier Central K.")}
+            </div>
+            <div className="user-role">
+              {isPercepteur ? "Opérateur Guichet Shop" : "Contrôleur Financier Siège"}
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            title="Se déconnecter"
+            style={{
+              marginLeft: 8,
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              color: "#94A3B8",
+              padding: 4,
+              display: "flex",
+              alignItems: "center",
+              borderRadius: 4,
+            }}
+          >
+            <RiLogoutBoxRLine size={16} />
+          </button>
         </div>
       </div>
     </header>
