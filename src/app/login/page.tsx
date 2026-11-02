@@ -48,7 +48,9 @@ function LoginFormContent() {
     setSuccessMsg(null);
     setLoading(true);
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001/api";
+    const apiUrl =
+      process.env.NEXT_PUBLIC_API_URL ||
+      "https://dominion-shop-app.onrender.com/api";
 
     try {
       // 1. Appel API au backend Express (/api/auth/login)
