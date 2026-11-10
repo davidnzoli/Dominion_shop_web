@@ -16,31 +16,21 @@ import {
   RiAlertLine,
   RiLoader4Line,
 } from "react-icons/ri";
-import { DEMO_USERS, setStoredSession, UserSession } from "@/lib/auth";
+import { setStoredSession, UserSession } from "@/lib/auth";
 
 function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromUrl = searchParams.get("from");
 
-  const [email, setEmail] = useState("tresorier.central@dominionshop.cd");
-  const [password, setPassword] = useState("Admin@2026");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
-  const [selectedRole, setSelectedRole] = useState<"admin" | "percepteur">("admin");
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  // Sélection rapide d'un compte autorisé
-  const handleSelectAccount = (roleKey: "admin" | "percepteur") => {
-    setSelectedRole(roleKey);
-    const demo = DEMO_USERS[roleKey];
-    setEmail(demo.email);
-    setPassword(demo.passwordDefault);
-    setErrorMsg(null);
-  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,63 +47,69 @@ function LoginFormContent() {
       const res = await fetch(`${apiUrl}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      }).catch(() => null);
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
 
-      let token = "";
-      let user: UserSession;
+      const json = await res.json().catch(() => null);
 
-      if (res && res.ok) {
-        const json = await res.json();
-        token = json.data?.token || "mock_jwt_token_2026";
-        user = json.data?.user || {
-          name: email.split("@")[0].replace(".", " "),
-          email,
-          role: selectedRole,
-        };
-        // Assurer le rôle correct
-        if (!user.role || user.role === "user") {
-          user.role = selectedRole;
-        }
-      } else {
-        // Mode démonstration / fallback intelligent
-        const isPercepteur = email.includes("percepteur") || selectedRole === "percepteur";
-        const demoUser = isPercepteur ? DEMO_USERS.percepteur : DEMO_USERS.admin;
-        token = "demo_jwt_token_" + Date.now();
-        user = {
-          id: demoUser.id,
-          name: demoUser.name,
-          email: email,
-          role: isPercepteur ? "percepteur" : "admin",
-          church: demoUser.church,
-          matricule: demoUser.matricule,
-        };
+      if (!res.ok) {
+        const errorText =
+          json?.message ||
+          (res.status === 401
+            ? "Email ou mot de passe incorrect."
+            : "Échec de l'authentification.");
+        throw new Error(errorText);
       }
 
-      // 2. Enregistrer la session dans les cookies & localStorage
-      setStoredSession(token, user);
-      setSuccessMsg(`Connexion réussie ! Bienvenue ${user.name}`);
+      if (!json?.data?.token || !json?.data?.user) {
+        throw new Error("Réponse inattendue du serveur d'authentification.");
+      }
 
-      // 3. Redirection automatique selon le rôle
+      // 2. Données réelles retournées depuis la base de données
+      const { token, user: dbUser } = json.data;
+      const userRole = (dbUser.role || "user").toLowerCase();
+
+      const userSession: UserSession = {
+        id: dbUser.id,
+        name: dbUser.name || email.split("@")[0],
+        email: dbUser.email,
+        role: userRole,
+      };
+
+      // 3. Enregistrer la session dans les cookies & localStorage
+      setStoredSession(token, userSession);
+      setSuccessMsg(`Connexion réussie ! Bienvenue ${userSession.name}`);
+
+      // 4. Redirection automatique selon le rôle vérifié en base de données
       setTimeout(() => {
         if (fromUrl && !fromUrl.includes("login")) {
           // Si le percepteur tente d'aller sur une page réservée admin, renvoyer sur /commissions
-          if (user.role === "percepteur" && (fromUrl.includes("dashboard") || fromUrl.includes("rapports"))) {
+          if (
+            userRole === "percepteur" &&
+            (fromUrl.includes("dashboard") ||
+              fromUrl.includes("rapports") ||
+              fromUrl.includes("depenses"))
+          ) {
             router.push("/commissions");
           } else {
             router.push(fromUrl);
           }
         } else {
-          if (user.role === "percepteur") {
+          // Redirection par défaut selon le rôle
+          if (userRole === "percepteur") {
             router.push("/commissions");
           } else {
             router.push("/dashboard");
           }
         }
       }, 500);
-
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erreur de connexion";
+      const msg =
+        err instanceof TypeError && err.message.includes("fetch")
+          ? "Impossible de joindre le serveur. Vérifiez que l'API est démarrée."
+          : err instanceof Error
+          ? err.message
+          : "Erreur de connexion";
       setErrorMsg(msg);
       setLoading(false);
     }
@@ -241,7 +237,7 @@ function LoginFormContent() {
                   />
                 </div>
                 <div className="input-helper">
-                  ⓘ Utilisez votre compte officiel rattaché à votre paroisse ou direction.
+                  ⓘ Renseignez l&apos;adresse email de votre compte utilisateur enregistré.
                 </div>
               </div>
 
@@ -293,12 +289,12 @@ function LoginFormContent() {
                     onChange={(e) => setRememberMe(e.target.checked)}
                     className="remember-checkbox"
                   />
-                  <span>Maintenir ma session active (Kinshasa HQ)</span>
+                  <span>Maintenir ma session active</span>
                 </label>
 
                 <div className="server-badge">
                   <RiServerLine size={12} color="#059669" />
-                  <span>Serveur KIN-HQ</span>
+                  <span>Base Centrale PostgreSQL</span>
                 </div>
               </div>
 
@@ -311,58 +307,46 @@ function LoginFormContent() {
                 {loading ? (
                   <>
                     <RiLoader4Line size={16} className="spin-icon" />
-                    <span>Authentification en cours...</span>
+                    <span>Vérification des accès...</span>
                   </>
                 ) : (
                   <>
-                    <span>
-                      {selectedRole === "percepteur"
-                        ? "Accéder à l'Espace Guichet Shop"
-                        : "Accéder au Tableau de Bord"}
-                    </span>
+                    <span>Se connecter au Système</span>
                     <RiArrowRightLine size={16} />
                   </>
                 )}
               </button>
             </form>
 
-            {/* Quick terminal accounts */}
-            <div className="authorized-accounts-section">
-              <div className="accounts-header-label">
-                COMPTES AUTORISÉS POUR CE TERMINAL :
+            {/* Note de sécurité & informations d'accès */}
+            <div
+              style={{
+                marginTop: "20px",
+                padding: "12px 14px",
+                background: "#F8FAFC",
+                borderRadius: "10px",
+                border: "1px solid #E2E8F0",
+                fontSize: "11px",
+                color: "#64748B",
+                lineHeight: "1.5",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  fontWeight: 600,
+                  color: "#1E293B",
+                  marginBottom: "4px",
+                }}
+              >
+                <RiShieldCheckFill size={15} color="#00C47D" />
+                <span>Authentification centralisée</span>
               </div>
-              <div className="accounts-grid">
-                {/* Admin Card */}
-                <button
-                  type="button"
-                  className={`account-chip${selectedRole === "admin" ? " selected" : ""}`}
-                  onClick={() => handleSelectAccount("admin")}
-                >
-                  <div className="account-avatar green">TK</div>
-                  <div className="account-info">
-                    <div className="account-name">Trésorier Central K.</div>
-                    <div className="account-role">Contrôleur Financier Siège (Admin)</div>
-                  </div>
-                  {selectedRole === "admin" && (
-                    <RiCheckLine size={14} className="account-check" />
-                  )}
-                </button>
-
-                {/* Percepteur Card */}
-                <button
-                  type="button"
-                  className={`account-chip${selectedRole === "percepteur" ? " selected" : ""}`}
-                  onClick={() => handleSelectAccount("percepteur")}
-                >
-                  <div className="account-avatar blue">CR</div>
-                  <div className="account-info">
-                    <div className="account-name">Cité de Refuge Limete</div>
-                    <div className="account-role">Matr: CR-HQ-001 (Percepteur Guichet)</div>
-                  </div>
-                  {selectedRole === "percepteur" && (
-                    <RiCheckLine size={14} className="account-check" />
-                  )}
-                </button>
+              <div>
+                Votre rôle (Administrateur, Percepteur, Trésorier...) et vos autorisations
+                sont vérifiés en temps réel dans la base de données.
               </div>
             </div>
 
