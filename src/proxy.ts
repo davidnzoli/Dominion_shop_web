@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Routes autorisées pour le percepteur
+// Routes accessibles au rôle percepteur
 const PERCEPTEUR_ALLOWED = ["/commissions", "/versements", "/login"];
 
-export function middleware(request: NextRequest) {
+export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Ignorer les requêtes statiques Next.js et API
+  // 1. Ignorer les fichiers statiques, assets et routes API
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
@@ -17,54 +17,63 @@ export function middleware(request: NextRequest) {
   }
 
   const token = request.cookies.get("dominion_token")?.value;
-  const role = request.cookies.get("dominion_user_role")?.value; // "admin" | "percepteur"
+  const role = request.cookies.get("dominion_user_role")?.value?.toLowerCase(); // "admin" | "percepteur"
 
   const isAuth = Boolean(token);
   const isLoginPage = pathname === "/login";
 
-  // 1. Redirection de la racine "/"
+  // 2. Gestion de la racine "/"
   if (pathname === "/") {
     if (!isAuth) {
       return NextResponse.redirect(new URL("/login", request.url));
     }
-    if (role === "percepteur") {
-      return NextResponse.redirect(new URL("/commissions", request.url));
-    }
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    const destination = role === "percepteur" ? "/commissions" : "/dashboard";
+    return NextResponse.redirect(new URL(destination, request.url));
   }
 
-  // 2. Si l'utilisateur n'est pas connecté et tente d'accéder à une page protégée
+  // 3. Utilisateur NON connecté tentant d'accéder à une page protégée
   if (!isAuth && !isLoginPage) {
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("from", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // 3. Si l'utilisateur est déjà connecté et arrive sur /login
-  if (isAuth && isLoginPage) {
-    if (role === "percepteur") {
-      return NextResponse.redirect(new URL("/commissions", request.url));
+    if (pathname !== "/") {
+      loginUrl.searchParams.set("from", pathname);
     }
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    const response = NextResponse.redirect(loginUrl);
+    // Empêcher la mise en cache de la redirection
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    response.headers.set("Pragma", "no-cache");
+    response.headers.set("Expires", "0");
+    return response;
   }
 
-  // 4. Contrôle d'accès par rôle pour le "percepteur"
+  // 4. Utilisateur DÉJÀ connecté qui tente d'aller sur /login
+  if (isAuth && isLoginPage) {
+    const destination = role === "percepteur" ? "/commissions" : "/dashboard";
+    return NextResponse.redirect(new URL(destination, request.url));
+  }
+
+  // 5. Contrôle d'accès par rôle pour le "percepteur"
   if (isAuth && role === "percepteur") {
     const isAllowed = PERCEPTEUR_ALLOWED.some(
       (route) => pathname === route || pathname.startsWith(route + "/")
     );
     if (!isAllowed) {
-      // Redirection automatique vers son espace autorisé
-      const redirectUrl = new URL("/commissions", request.url);
-      redirectUrl.searchParams.set("unauthorized", "1");
-      return NextResponse.redirect(redirectUrl);
+      // Rediriger vers l'espace autorisé du percepteur
+      return NextResponse.redirect(new URL("/commissions", request.url));
     }
   }
 
-  return NextResponse.next();
+  // 6. Pour toutes les pages protégées, désactiver le cache (bfcache)
+  const response = NextResponse.next();
+  if (!isLoginPage) {
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    response.headers.set("Pragma", "no-cache");
+    response.headers.set("Expires", "0");
+  }
+
+  return response;
 }
 
-export const proxy = middleware;
+export const middleware = proxy;
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],

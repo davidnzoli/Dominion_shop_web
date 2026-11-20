@@ -232,7 +232,7 @@ function LoginFormContent() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="tresorier.central@dominionshop.cd"
+                    placeholder="tresorier@dominionshop.cd"
                     className="login-input"
                   />
                 </div>
