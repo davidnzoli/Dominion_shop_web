@@ -82,27 +82,27 @@ function LoginFormContent() {
 
       // 4. Redirection automatique selon le rôle vérifié en base de données
       setTimeout(() => {
-        if (fromUrl && !fromUrl.includes("login")) {
+        let destination = userRole === "percepteur" ? "/commissions" : "/dashboard";
+
+        if (fromUrl && !fromUrl.includes("login") && fromUrl !== "/") {
           // Si le percepteur tente d'aller sur une page réservée admin, renvoyer sur /commissions
           if (
             userRole === "percepteur" &&
             (fromUrl.includes("dashboard") ||
               fromUrl.includes("rapports") ||
-              fromUrl.includes("depenses"))
+              fromUrl.includes("depenses") ||
+              fromUrl.includes("eglises-retard"))
           ) {
-            router.push("/commissions");
+            destination = "/commissions";
           } else {
-            router.push(fromUrl);
-          }
-        } else {
-          // Redirection par défaut selon le rôle
-          if (userRole === "percepteur") {
-            router.push("/commissions");
-          } else {
-            router.push("/dashboard");
+            destination = fromUrl;
           }
         }
-      }, 500);
+
+        // On utilise window.location.replace au lieu de router.push pour garantir
+        // que les cookies nouvellement définis sont envoyés directement au Middleware Next.js
+        window.location.replace(destination);
+      }, 400);
     } catch (err: unknown) {
       const msg =
         err instanceof TypeError && err.message.includes("fetch")

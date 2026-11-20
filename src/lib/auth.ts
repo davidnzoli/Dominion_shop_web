@@ -31,10 +31,37 @@ export const DEMO_USERS: Record<string, UserSession & { passwordDefault: string 
 };
 
 /**
+ * Récupère le jeton JWT depuis les cookies ou localStorage
+ */
+export function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const token = localStorage.getItem("dominion_token");
+    if (token) return token;
+  } catch {
+    // ignore
+  }
+
+  const matchToken = document.cookie.match(/dominion_token=([^;]+)/);
+  if (matchToken && matchToken[1]) {
+    return decodeURIComponent(matchToken[1]);
+  }
+
+  return null;
+}
+
+/**
  * Lit la session utilisateur depuis les cookies ou localStorage
  */
 export function getStoredUser(): UserSession | null {
   if (typeof window === "undefined") return null;
+
+  // Si aucun token n'est présent, l'utilisateur est considéré comme déconnecté
+  const token = getStoredToken();
+  if (!token) {
+    return null;
+  }
 
   try {
     const raw = localStorage.getItem("dominion_user");
@@ -60,7 +87,7 @@ export function getStoredUser(): UserSession | null {
 }
 
 /**
- * Enregistre la session dans les cookies (pour le middleware/proxy) et localStorage
+ * Enregistre la session dans les cookies (pour le middleware) et localStorage
  */
 export function setStoredSession(token: string, user: UserSession) {
   if (typeof window === "undefined") return;
@@ -80,19 +107,30 @@ export function setStoredSession(token: string, user: UserSession) {
 }
 
 /**
- * Supprime la session et déconnecte
+ * Supprime complètement la session (cookies, localStorage, sessionStorage)
  */
 export function clearStoredSession() {
   if (typeof window === "undefined") return;
 
-  document.cookie = "dominion_token=; path=/; max-age=0";
-  document.cookie = "dominion_user_role=; path=/; max-age=0";
-  document.cookie = "dominion_user_name=; path=/; max-age=0";
-  document.cookie = "dominion_user_email=; path=/; max-age=0";
+  const cookieNames = [
+    "dominion_token",
+    "dominion_user_role",
+    "dominion_user_name",
+    "dominion_user_email",
+  ];
+
+  for (const name of cookieNames) {
+    document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; max-age=0; SameSite=Lax`;
+    document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; max-age=0;`;
+  }
 
   try {
     localStorage.removeItem("dominion_token");
     localStorage.removeItem("dominion_user");
+    sessionStorage.removeItem("dominion_token");
+    sessionStorage.removeItem("dominion_user");
+    localStorage.clear();
+    sessionStorage.clear();
   } catch {
     // ignore
   }
